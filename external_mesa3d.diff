@@ -1,0 +1,19 @@
+diff --git a/src/glsl/linker.cpp b/src/glsl/linker.cpp
+index f8b6962..adfc977 100644
+--- a/src/glsl/linker.cpp
++++ b/src/glsl/linker.cpp
+@@ -81,6 +81,7 @@ extern "C" {
+ #include "program/hash_table.h"
+ #include "linker.h"
+ #include "ir_optimization.h"
++#include <stddef.h>
+ 
+ #include "main/shaderobj.h"
+ 
+@@ -1762,4 +1763,4 @@ done:
+    }
+ 
+    //hieralloc_free(mem_ctx);
+-}
+\ No newline at end of file
++}

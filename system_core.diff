@@ -1,0 +1,177 @@
+diff --git a/debuggerd/Android.mk b/debuggerd/Android.mk
+index 6cfe79b..2fc20d9 100644
+--- a/debuggerd/Android.mk
++++ b/debuggerd/Android.mk
+@@ -34,7 +34,7 @@ LOCAL_MODULE_TAGS := optional
+ LOCAL_SHARED_LIBRARIES := libcutils libc
+ include $(BUILD_EXECUTABLE)
+ 
+-ifeq ($(ARCH_ARM_HAVE_VFP),true)
++ifeq ($(ARCH_ARM_HAVE_NEON),true)
+ include $(CLEAR_VARS)
+ 
+ LOCAL_CFLAGS += -DWITH_VFP
+diff --git a/init/builtins.c b/init/builtins.c
+index bd60b2e..e9da4b3 100644
+--- a/init/builtins.c
++++ b/init/builtins.c
+@@ -495,6 +495,64 @@ exit_success:
+ 
+ }
+ 
++#define UBI_DEV_NUM_AUTO (-1)
++#define UBI_CTRL_IOC_MAGIC 'o'
++#define UBI_IOCATT _IOW(UBI_CTRL_IOC_MAGIC, 64, struct ubi_attach_req)
++
++struct ubi_attach_req {
++	__s32 ubi_num;
++	__s32 mtd_num;
++	__s32 vid_hdr_offset;
++	__s8 padding[12];
++};
++
++static int ubi_attach(const char *ubi_ctrl, int mtd_num, int dev_num)
++{
++    int fd, ret;
++    struct ubi_attach_req req;
++
++    fd = open(ubi_ctrl, O_RDWR);
++    if (fd < 0)
++        return -1;
++
++    if (dev_num < 0)
++        dev_num = UBI_DEV_NUM_AUTO;
++
++    memset(&req, 0, sizeof(req));
++    req.mtd_num = mtd_num;
++    req.ubi_num = dev_num;
++
++    ret = ioctl(fd, UBI_IOCATT, &req);
++
++    close(fd);
++    return ret;
++}
++
++int do_ubiattach(int nargs, char **args)
++{
++    char *source = args[1];
++    int mtd_num, ubi_num = -1;
++
++    if (nargs >= 3) {
++        ubi_num = strtol(args[2], 0, 0);
++    }
++
++    if (!strncmp(source, "mtd@", 4)) {
++        mtd_num = mtd_name_to_number(source + 4);
++        if (mtd_num < 0) {
++            return -1;
++        }
++    } else {
++        mtd_num = strtoul(source, 0, 0);
++    }
++
++    if (ubi_attach("/dev/ubi_ctrl", mtd_num, ubi_num)) {
++        return -1;
++    }
++
++    return 0;
++}
++
+ int do_setkey(int nargs, char **args)
+ {
+     struct kbentry kbe;
+diff --git a/init/init.c b/init/init.c
+index 7fab0f0..c780c18 100755
+--- a/init/init.c
++++ b/init/init.c
+@@ -61,6 +61,7 @@ static int   bootchart_count;
+ static char console[32];
+ static char serialno[32];
+ static char bootmode[32];
++static char kernel_bootmode[32];
+ static char battchg_pause[32];
+ static char baseband[32];
+ static char carrier[32];
+@@ -460,6 +461,9 @@ static void import_kernel_nv(char *name, int in_qemu)
+             strlcpy(console, value, sizeof(console));
+         } else if (!strcmp(name,"androidboot.mode")) {
+             strlcpy(bootmode, value, sizeof(bootmode));
++        /* Samsung Bootloader recovery cmdline */
++        } else if (!strcmp(name,"bootmode")) {
++            strncpy(kernel_bootmode, value, sizeof(kernel_bootmode));
+         } else if (!strcmp(name,"androidboot.battchg_pause")) {
+             strlcpy(battchg_pause, value, sizeof(battchg_pause));
+         } else if (!strcmp(name,"androidboot.serialno")) {
+@@ -751,23 +755,30 @@ int main(int argc, char **argv)
+     open_devnull_stdio();
+     klog_init();
+ 
+-    INFO("reading config file\n");
+-
+-    if (!charging_mode_booting())
+-       init_parse_config_file("/init.rc");
+-    else
+-       init_parse_config_file("/lpm.rc");
++    memset(kernel_bootmode, '\0', sizeof( kernel_bootmode ));
+ 
+     /* pull the kernel commandline and ramdisk properties file in */
+     import_kernel_cmdline(0, import_kernel_nv);
+     /* don't expose the raw commandline to nonpriv processes */
+     chmod("/proc/cmdline", 0440);
+ 
+-    if (!charging_mode_booting()) {
+-         get_hardware_name(hardware, &revision);
+-         snprintf(tmp, sizeof(tmp), "/init.%s.rc", hardware);
+-         init_parse_config_file(tmp);
++    INFO("reading config file\n");
++
++    if (!charging_mode_booting())
++    {
++
++       init_parse_config_file("/init.rc");
++
++       if (!strcmp(kernel_bootmode, "2") || !strcmp(kernel_bootmode, "4"))
++          init_parse_config_file("/recovery.rc");
++       else {
++          get_hardware_name(hardware, &revision);
++          snprintf(tmp, sizeof(tmp), "/init.%s.rc", hardware);
++          init_parse_config_file(tmp);
++       }
+     }
++    else
++       init_parse_config_file("/lpm.rc");
+ 
+     /* Check for a target specific initialisation file and read if present */
+     if (access("/init.target.rc", R_OK) == 0) {
+diff --git a/init/init_parser.c b/init/init_parser.c
+index 9dced9f..b39b874 100644
+--- a/init/init_parser.c
++++ b/init/init_parser.c
+@@ -146,6 +146,7 @@ int lookup_keyword(const char *s)
+         if (!strcmp(s, "rigger")) return K_trigger;
+         break;
+     case 'u':
++        if (!strcmp(s, "biattach")) return K_ubiattach;
+         if (!strcmp(s, "ser")) return K_user;
+         break;
+     case 'w':
+diff --git a/init/keywords.h b/init/keywords.h
+index 4f6ecba..ef461d4 100644
+--- a/init/keywords.h
++++ b/init/keywords.h
+@@ -29,6 +29,7 @@ int do_write(int nargs, char **args);
+ int do_copy(int nargs, char **args);
+ int do_chown(int nargs, char **args);
+ int do_chmod(int nargs, char **args);
++int do_ubiattach(int nargs, char **args);
+ int do_loglevel(int nargs, char **args);
+ int do_load_persist_props(int nargs, char **args);
+ int do_wait(int nargs, char **args);
+@@ -82,6 +83,7 @@ enum {
+     KEYWORD(copy,        COMMAND, 2, do_copy)
+     KEYWORD(chown,       COMMAND, 2, do_chown)
+     KEYWORD(chmod,       COMMAND, 2, do_chmod)
++    KEYWORD(ubiattach,   COMMAND, 1, do_ubiattach)
+     KEYWORD(loglevel,    COMMAND, 1, do_loglevel)
+     KEYWORD(load_persist_props,    COMMAND, 0, do_load_persist_props)
+     KEYWORD(ioprio,      OPTION,  0, 0)

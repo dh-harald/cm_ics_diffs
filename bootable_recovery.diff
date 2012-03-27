@@ -1,0 +1,128 @@
+diff --git a/Android.mk b/Android.mk
+index be4c668..786e491 100644
+--- a/Android.mk
++++ b/Android.mk
+@@ -81,7 +81,7 @@ LOCAL_STATIC_LIBRARIES += libminzip libunz libmincrypt
+ 
+ LOCAL_STATIC_LIBRARIES += libedify libbusybox libmkyaffs2image libunyaffs liberase_image libdump_image libflash_image
+ 
+-LOCAL_STATIC_LIBRARIES += libcrecovery libflashutils libmtdutils libmmcutils libbmlutils 
++LOCAL_STATIC_LIBRARIES += libcrecovery libflashutils libmtdutils libmmcutils libbmlutils libubitools
+ 
+ ifeq ($(BOARD_USES_BML_OVER_MTD),true)
+ LOCAL_STATIC_LIBRARIES += libbml_over_mtd
+@@ -163,4 +163,5 @@ include $(commands_recovery_local_path)/edify/Android.mk
+ include $(commands_recovery_local_path)/updater/Android.mk
+ include $(commands_recovery_local_path)/applypatch/Android.mk
+ include $(commands_recovery_local_path)/utilities/Android.mk
++include $(commands_recovery_local_path)/ubitools/Android.mk
+ commands_recovery_local_path :=
+diff --git a/extendedcommands.c b/extendedcommands.c
+index 845626a..33209cd 100644
+--- a/extendedcommands.c
++++ b/extendedcommands.c
+@@ -30,6 +30,7 @@
+ #include "minzip/DirUtil.h"
+ #include "roots.h"
+ #include "recovery_ui.h"
++#include "ubitools/ubi_tools.h"
+ 
+ #include "../../external/yaffs2/yaffs2/utils/mkyaffs2image.h"
+ #include "../../external/yaffs2/yaffs2/utils/unyaffs.h"
+@@ -437,9 +438,9 @@ int confirm_selection(const char* title, const char* confirm)
+ 	}
+ 	}
+ 
+-#define MKE2FS_BIN      "/sbin/mke2fs"
+-#define TUNE2FS_BIN     "/sbin/tune2fs"
+-#define E2FSCK_BIN      "/sbin/e2fsck"
++#define MKE2FS_BIN          "/sbin/mke2fs"
++#define TUNE2FS_BIN         "/sbin/tune2fs"
++#define E2FSCK_BIN          "/sbin/e2fsck"
+ 
+ int format_device(const char *device, const char *path, const char *fs_type) {
+     Volume* v = volume_for_path(path);
+@@ -562,6 +563,15 @@ int format_unknown_device(const char *device, const char* path, const char *fs_t
+             }
+             return format_ext2_device(device);
+         }
++
++        if (strcmp("ubifs", fs_type) == 0) {
++            LOGI("Formatting ubifs device.\n");
++            if (0 != ensure_path_unmounted(path)) {
++                LOGE("Error while unmounting %s.\n", path);
++                return -12;
++            }
++            return ubi_updatevol(device, NULL);
++        }
+     }
+ 
+     if (0 != ensure_path_mounted(path))
+diff --git a/nandroid.c b/nandroid.c
+index fc39359..84f1427 100644
+--- a/nandroid.c
++++ b/nandroid.c
+@@ -396,7 +396,7 @@ int nandroid_restore_partition_extended(const char* backup_path, const char* mou
+     char* name = basename(mount_point);
+ 
+     nandroid_restore_handler restore_handler = NULL;
+-    const char *filesystems[] = { "yaffs2", "ext2", "ext3", "ext4", "vfat", "rfs", NULL };
++    const char *filesystems[] = { "yaffs2", "ext2", "ext3", "ext4", "vfat", "rfs", "ubifs", NULL };
+     const char* backup_filesystem = NULL;
+     Volume *vol = volume_for_path(mount_point);
+     const char *device = NULL;
+diff --git a/roots.c b/roots.c
+index ea97c7a..b35d5e7 100644
+--- a/roots.c
++++ b/roots.c
+@@ -260,7 +260,8 @@ int ensure_path_mounted_at_mount_point(const char* path, const char* mount_point
+             return -1;
+         }
+         return mtd_mount_partition(partition, mount_point, v->fs_type, 0);
+-    } else if (strcmp(v->fs_type, "ext4") == 0 ||
++    } else if (strcmp(v->fs_type, "ubifs") == 0 ||
++               strcmp(v->fs_type, "ext4") == 0 ||
+                strcmp(v->fs_type, "ext3") == 0 ||
+                strcmp(v->fs_type, "rfs") == 0 ||
+                strcmp(v->fs_type, "vfat") == 0) {
+diff --git a/updater/Android.mk b/updater/Android.mk
+index 86c4bb7..5dd7a13 100644
+--- a/updater/Android.mk
++++ b/updater/Android.mk
+@@ -28,7 +28,7 @@ endif
+ LOCAL_STATIC_LIBRARIES += libflashutils libmtdutils libmmcutils libbmlutils
+ 
+ LOCAL_STATIC_LIBRARIES += $(TARGET_RECOVERY_UPDATER_LIBS) $(TARGET_RECOVERY_UPDATER_EXTRA_LIBS)
+-LOCAL_STATIC_LIBRARIES += libapplypatch libedify libmtdutils libminzip libz
++LOCAL_STATIC_LIBRARIES += libapplypatch libedify libmtdutils libminzip libz libubitools
+ LOCAL_STATIC_LIBRARIES += libmincrypt libbz
+ LOCAL_STATIC_LIBRARIES += libminelf
+ LOCAL_STATIC_LIBRARIES += libcutils libstdc++ libc
+diff --git a/updater/install.c b/updater/install.c
+index c9d21f2..d7e46dc 100644
+--- a/updater/install.c
++++ b/updater/install.c
+@@ -40,6 +40,7 @@
+ #include "applypatch/applypatch.h"
+ 
+ #include "flashutils/flashutils.h"
++#include "ubitools/ubi_tools.h"
+ 
+ #ifdef USE_EXT4
+ #include "make_ext4fs.h"
+@@ -269,6 +270,15 @@ Value* FormatFn(const char* name, State* state, int argc, Expr* argv[]) {
+             goto done;
+         }
+         result = location;
++    } else if (strcmp(fs_type, "ubifs") == 0) {
++        int status = ubi_updatevol(location, NULL);
++        if (status != 0) {
++            fprintf(stderr, "%s: ubi_updatevol failed (%d) on %s",
++                    name, status, location);
++            result = strdup("");
++            goto done;
++        }
++        result = location;
+     } else {
+         fprintf(stderr, "%s: unsupported fs_type \"%s\" partition_type \"%s\"",
+                 name, fs_type, partition_type);
