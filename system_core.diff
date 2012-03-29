@@ -81,7 +81,7 @@ index bd60b2e..e9da4b3 100644
  {
      struct kbentry kbe;
 diff --git a/init/init.c b/init/init.c
-index 7fab0f0..c780c18 100755
+index 8aed7b7..dc973f5 100755
 --- a/init/init.c
 +++ b/init/init.c
 @@ -61,6 +61,7 @@ static int   bootchart_count;
@@ -92,7 +92,7 @@ index 7fab0f0..c780c18 100755
  static char battchg_pause[32];
  static char baseband[32];
  static char carrier[32];
-@@ -460,6 +461,9 @@ static void import_kernel_nv(char *name, int in_qemu)
+@@ -461,6 +462,9 @@ static void import_kernel_nv(char *name, int in_qemu)
              strlcpy(console, value, sizeof(console));
          } else if (!strcmp(name,"androidboot.mode")) {
              strlcpy(bootmode, value, sizeof(bootmode));
@@ -102,7 +102,7 @@ index 7fab0f0..c780c18 100755
          } else if (!strcmp(name,"androidboot.battchg_pause")) {
              strlcpy(battchg_pause, value, sizeof(battchg_pause));
          } else if (!strcmp(name,"androidboot.serialno")) {
-@@ -751,23 +755,30 @@ int main(int argc, char **argv)
+@@ -757,23 +761,30 @@ int main(int argc, char **argv)
      open_devnull_stdio();
      klog_init();
  
