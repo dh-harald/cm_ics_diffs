@@ -2,19 +2,20 @@ package com.android.internal.telephony;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import android.util.Log;
-
-import android.telephony.SmsMessage;
-
 import static com.android.internal.telephony.RILConstants.*;
 
+import com.android.internal.telephony.DataConnection.FailCause;
 import com.android.internal.telephony.cdma.CdmaInformationRecords;
 
 import android.content.Context;
-
+import android.content.res.Resources;
 import android.os.Message;
 import android.os.AsyncResult;
 import android.os.Parcel;
+import android.os.SystemProperties;
+import android.util.Log;
+import android.telephony.SmsMessage;
+import android.text.TextUtils;
 
 import android.telephony.PhoneNumberUtils;
 
@@ -233,6 +234,52 @@ public class SpicaRIL extends RIL implements CommandsInterface {
             response = response.substring(0, 8);
 
         return response;
+    }
+
+    @Override
+    protected DataCallState getDataCallState(Parcel p, int version) {
+
+        DataCallState dataCall = new DataCallState();
+
+        dataCall.cid = p.readInt();
+        dataCall.active = p.readInt();
+        dataCall.type = p.readString();
+        p.readString(); // APN - not used
+        String addresses = p.readString();
+        if (!TextUtils.isEmpty(addresses)) {
+            dataCall.addresses = addresses.split(" ");
+        }
+        // DataCallState needs an ifname. Since we don't have one use the name from the ThrottleService resource (default=rmnet0).
+        dataCall.ifname = Resources.getSystem().getString(com.android.internal.R.string.config_datause_iface);
+
+        dataCall.gateways  = new String[] {SystemProperties.get("net." + dataCall.ifname + ".gw")};
+        dataCall.dnses     = new String[] {SystemProperties.get("net." + dataCall.ifname + ".dns1"),
+                                           SystemProperties.get("net." + dataCall.ifname + ".dns2")};
+        return dataCall;
+    }
+
+    @Override
+    protected Object
+    responseSetupDataCall(Parcel p) {
+
+        DataCallState dataCall = new DataCallState();
+
+        dataCall.version = p.readInt();
+        dataCall.cid = Integer.parseInt(p.readString());
+        dataCall.ifname = p.readString();
+        if (TextUtils.isEmpty(dataCall.ifname)) {
+            throw new RuntimeException(
+                "RIL_REQUEST_SETUP_DATA_CALL response, no ifname");
+        }
+
+        dataCall.addresses = new String[] { p.readString() } ;
+
+        dataCall.dnses     = new String[] { SystemProperties.get("net." + dataCall.ifname + ".dns1"),
+                                            SystemProperties.get("net." + dataCall.ifname + ".dns2")};
+
+        dataCall.gateways  = new String[] { SystemProperties.get("net." + dataCall.ifname + ".gw")};
+
+        return dataCall;
     }
 
     @Override
