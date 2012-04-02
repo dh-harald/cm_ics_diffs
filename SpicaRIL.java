@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import static com.android.internal.telephony.RILConstants.*;
 
-import com.android.internal.telephony.DataConnection.FailCause;
 import com.android.internal.telephony.cdma.CdmaInformationRecords;
 
 import android.content.Context;
@@ -32,6 +31,8 @@ public class SpicaRIL extends RIL implements CommandsInterface {
     static final int RIL_UNSOL_GPS_NOTI = 11009;
     static final int RIL_UNSOL_SAMSUNG_UNKNOWN_MAGIC_REQUEST = 11010;
     static final int RIL_UNSOL_SAMSUNG_UNKNOWN_MAGIC_REQUEST_2 = 11012;
+
+    static String MypdpAddress;
 
     @Override
     public void
@@ -225,6 +226,32 @@ public class SpicaRIL extends RIL implements CommandsInterface {
         rr.release();
     }
 
+    @Override
+    protected Object
+    responseOperatorInfos(Parcel p) {
+        String strings[] = (String [])responseStrings(p);
+        ArrayList<OperatorInfo> ret;
+
+        if (strings.length % 5 != 0) {
+            throw new RuntimeException(
+                "RIL_REQUEST_QUERY_AVAILABLE_NETWORKS: invalid response. Got "
+                + strings.length + " strings, expected multible of 5");
+        }
+
+        ret = new ArrayList<OperatorInfo>(strings.length / 5);
+
+        for (int i = 0 ; i < strings.length ; i += 5) {
+            ret.add (
+                new OperatorInfo(
+                    strings[i+0],
+                    strings[i+1],
+                    strings[i+2],
+                    strings[i+3]));
+        }
+
+        return ret;
+    }
+
     protected Object
     responseIMSI(Parcel p) {
         String response;
@@ -241,14 +268,19 @@ public class SpicaRIL extends RIL implements CommandsInterface {
 
         DataCallState dataCall = new DataCallState();
 
+        dataCall.version = version;
         dataCall.cid = p.readInt();
         dataCall.active = p.readInt();
         dataCall.type = p.readString();
         p.readString(); // APN - not used
         String addresses = p.readString();
+
         if (!TextUtils.isEmpty(addresses)) {
             dataCall.addresses = addresses.split(" ");
+        } else {
+            dataCall.addresses = new String[] { MypdpAddress };
         }
+
         // DataCallState needs an ifname. Since we don't have one use the name from the ThrottleService resource (default=rmnet0).
         dataCall.ifname = Resources.getSystem().getString(com.android.internal.R.string.config_datause_iface);
 
@@ -272,7 +304,11 @@ public class SpicaRIL extends RIL implements CommandsInterface {
                 "RIL_REQUEST_SETUP_DATA_CALL response, no ifname");
         }
 
-        dataCall.addresses = new String[] { p.readString() } ;
+        String addresses = p.readString();
+        if (!TextUtils.isEmpty(addresses)) {
+            dataCall.addresses = addresses.split(" ");
+            MypdpAddress = dataCall.addresses[0];
+        }
 
         dataCall.dnses     = new String[] { SystemProperties.get("net." + dataCall.ifname + ".dns1"),
                                             SystemProperties.get("net." + dataCall.ifname + ".dns2")};
@@ -280,6 +316,22 @@ public class SpicaRIL extends RIL implements CommandsInterface {
         dataCall.gateways  = new String[] { SystemProperties.get("net." + dataCall.ifname + ".gw")};
 
         return dataCall;
+    }
+
+    @Override
+    protected Object
+    responseDataCallList(Parcel p) {
+        ArrayList<DataCallState> response;
+        int ver = 3;
+        int num = p.readInt();
+        riljLog("responseDataCallList ver=" + ver + " num=" + num);
+
+        response = new ArrayList<DataCallState>(num);
+        for (int i = 0; i < num; i++) {
+            response.add(getDataCallState(p, ver));
+        }
+
+        return response;
     }
 
     @Override
@@ -696,5 +748,76 @@ public class SpicaRIL extends RIL implements CommandsInterface {
             mRilConnectedRegistrants.notifyRegistrants(
                                 new AsyncResult (null, new Integer(rilVer), null));
         }
+    }
+
+    @Override
+    protected Object
+    responseCallList(Parcel p) {
+        int num;
+        int voiceSettings;
+        ArrayList<DriverCall> response;
+        DriverCall dc;
+        int dataAvail = p.dataAvail();
+        int pos = p.dataPosition();
+        int size = p.dataSize();
+
+        Log.d(LOG_TAG, "Parcel size = " + size);
+        Log.d(LOG_TAG, "Parcel pos = " + pos);
+        Log.d(LOG_TAG, "Parcel dataAvail = " + dataAvail);
+
+        //Samsung fucked up here
+
+        num = p.readInt();
+
+        Log.d(LOG_TAG, "num = " + num);
+        response = new ArrayList<DriverCall>(num);
+
+        for (int i = 0 ; i < num ; i++) {
+
+            dc = new DriverCall();
+
+            dc.state = DriverCall.stateFromCLCC(p.readInt());
+            Log.d(LOG_TAG, "state = " + dc.state);
+            dc.index = p.readInt();
+            Log.d(LOG_TAG, "index = " + dc.index);
+            dc.TOA = p.readInt();
+            Log.d(LOG_TAG, "state = " + dc.TOA);
+            dc.isMpty = (0 != p.readInt());
+            Log.d(LOG_TAG, "isMpty = " + dc.isMpty);
+            dc.isMT = (0 != p.readInt());
+            Log.d(LOG_TAG, "isMT = " + dc.isMT);
+            dc.als = p.readInt();
+            Log.d(LOG_TAG, "als = " + dc.als);
+            voiceSettings = p.readInt();
+            dc.isVoice = (0 == voiceSettings) ? false : true;
+            Log.d(LOG_TAG, "isVoice = " + dc.isVoice);
+            dc.isVoicePrivacy =  (0 != p.readInt());
+            dc.number = p.readString();
+            Log.d(LOG_TAG, "number = " + dc.number);
+            int np = p.readInt();
+            Log.d(LOG_TAG, "np = " + np);
+            dc.numberPresentation = DriverCall.presentationFromCLIP(np);
+            dc.name = p.readString();
+            Log.d(LOG_TAG, "name = " + dc.name);
+            dc.namePresentation = p.readInt();
+            Log.d(LOG_TAG, "namePresentation = " + dc.namePresentation);
+
+            // Make sure there's a leading + on addresses with a TOA of 145
+            dc.number = PhoneNumberUtils.stringFromStringAndTOA(dc.number, dc.TOA);
+
+            response.add(dc);
+
+            if (dc.isVoicePrivacy) {
+                mVoicePrivacyOnRegistrants.notifyRegistrants();
+                Log.d(LOG_TAG, "InCall VoicePrivacy is enabled");
+            } else {
+                mVoicePrivacyOffRegistrants.notifyRegistrants();
+                Log.d(LOG_TAG, "InCall VoicePrivacy is disabled");
+            }
+        }
+
+        Collections.sort(response);
+
+        return response;
     }
 }
