@@ -105,7 +105,7 @@ index ea97c7a..b35d5e7 100644
                 strcmp(v->fs_type, "rfs") == 0 ||
                 strcmp(v->fs_type, "vfat") == 0) {
 diff --git a/updater/Android.mk b/updater/Android.mk
-index 86c4bb7..5dd7a13 100644
+index d859c7b..c468fb5 100644
 --- a/updater/Android.mk
 +++ b/updater/Android.mk
 @@ -28,7 +28,7 @@ endif
@@ -115,7 +115,7 @@ index 86c4bb7..5dd7a13 100644
 -LOCAL_STATIC_LIBRARIES += libapplypatch libedify libmtdutils libminzip libz
 +LOCAL_STATIC_LIBRARIES += libapplypatch libedify libmtdutils libminzip libz libubitools
  LOCAL_STATIC_LIBRARIES += libmincrypt libbz
- LOCAL_STATIC_LIBRARIES += libminelf
+ LOCAL_STATIC_LIBRARIES += libminelf libcrecovery
  LOCAL_STATIC_LIBRARIES += libcutils libstdc++ libc
 diff --git a/updater/install.c b/updater/install.c
 index c9d21f2..d7e46dc 100644

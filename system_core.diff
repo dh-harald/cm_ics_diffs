@@ -12,10 +12,10 @@ index 6cfe79b..2fc20d9 100644
  
  LOCAL_CFLAGS += -DWITH_VFP
 diff --git a/init/builtins.c b/init/builtins.c
-index bd60b2e..e9da4b3 100644
+index c61c639..286e882 100644
 --- a/init/builtins.c
 +++ b/init/builtins.c
-@@ -495,6 +495,64 @@ exit_success:
+@@ -553,6 +553,64 @@ exit_success:
  
  }
  
@@ -81,10 +81,10 @@ index bd60b2e..e9da4b3 100644
  {
      struct kbentry kbe;
 diff --git a/init/init.c b/init/init.c
-index 8aed7b7..dc973f5 100755
+index 7405ee3..706d01c 100644
 --- a/init/init.c
 +++ b/init/init.c
-@@ -61,6 +61,7 @@ static int   bootchart_count;
+@@ -66,6 +66,7 @@ static int   bootchart_count;
  static char console[32];
  static char serialno[32];
  static char bootmode[32];
@@ -92,22 +92,20 @@ index 8aed7b7..dc973f5 100755
  static char battchg_pause[32];
  static char baseband[32];
  static char carrier[32];
-@@ -461,6 +462,9 @@ static void import_kernel_nv(char *name, int in_qemu)
+@@ -468,6 +469,9 @@ static void import_kernel_nv(char *name, int in_qemu)
              strlcpy(console, value, sizeof(console));
          } else if (!strcmp(name,"androidboot.mode")) {
              strlcpy(bootmode, value, sizeof(bootmode));
 +        /* Samsung Bootloader recovery cmdline */
 +        } else if (!strcmp(name,"bootmode")) {
 +            strncpy(kernel_bootmode, value, sizeof(kernel_bootmode));
-         } else if (!strcmp(name,"androidboot.battchg_pause")) {
+         } else if (!strcmp(name,BOARD_CHARGING_CMDLINE_NAME)) {
              strlcpy(battchg_pause, value, sizeof(battchg_pause));
          } else if (!strcmp(name,"androidboot.serialno")) {
-@@ -757,23 +761,30 @@ int main(int argc, char **argv)
-     open_devnull_stdio();
-     klog_init();
+@@ -766,10 +770,7 @@ int main(int argc, char **argv)
  
--    INFO("reading config file\n");
--
+     INFO("reading config file\n");
+ 
 -    if (!charging_mode_booting())
 -       init_parse_config_file("/init.rc");
 -    else
@@ -116,33 +114,35 @@ index 8aed7b7..dc973f5 100755
  
      /* pull the kernel commandline and ramdisk properties file in */
      import_kernel_cmdline(0, import_kernel_nv);
-     /* don't expose the raw commandline to nonpriv processes */
-     chmod("/proc/cmdline", 0440);
+@@ -782,8 +783,16 @@ int main(int argc, char **argv)
+         charging_mode = 1;
  
--    if (!charging_mode_booting()) {
--         get_hardware_name(hardware, &revision);
+     if (!charging_mode_booting()) {
 -         snprintf(tmp, sizeof(tmp), "/init.%s.rc", hardware);
 -         init_parse_config_file(tmp);
-+    INFO("reading config file\n");
 +
-+    if (!charging_mode_booting())
-+    {
++        init_parse_config_file("/init.rc");
 +
-+       init_parse_config_file("/init.rc");
-+
-+       if (!strcmp(kernel_bootmode, "2") || !strcmp(kernel_bootmode, "4"))
-+          init_parse_config_file("/recovery.rc");
-+       else {
-+          get_hardware_name(hardware, &revision);
-+          snprintf(tmp, sizeof(tmp), "/init.%s.rc", hardware);
-+          init_parse_config_file(tmp);
-+       }
-     }
-+    else
++        if (!strcmp(kernel_bootmode, "2") || !strcmp(kernel_bootmode, "4"))
++             init_parse_config_file("/recovery.rc");
++        else {
++             get_hardware_name(hardware, &revision);
++             snprintf(tmp, sizeof(tmp), "/init.%s.rc", hardware);
++             init_parse_config_file(tmp);
++        }
+ 
+         /* Check for an emmc initialisation file and read if present */
+         if (emmc_boot && access("/init.emmc.rc", R_OK) == 0) {
+@@ -796,7 +805,8 @@ int main(int argc, char **argv)
+             INFO("Reading target specific config file");
+                 init_parse_config_file("/init.target.rc");
+         }
+-    }
++    } else
 +       init_parse_config_file("/lpm.rc");
  
-     /* Check for a target specific initialisation file and read if present */
-     if (access("/init.target.rc", R_OK) == 0) {
+     action_for_each_trigger("early-init", action_add_queue_tail);
+ 
 diff --git a/init/init_parser.c b/init/init_parser.c
 index 9dced9f..b39b874 100644
 --- a/init/init_parser.c
