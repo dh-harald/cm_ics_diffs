@@ -12,10 +12,10 @@ index 6cfe79b..2fc20d9 100644
  
  LOCAL_CFLAGS += -DWITH_VFP
 diff --git a/init/builtins.c b/init/builtins.c
-index c61c639..286e882 100644
+index 263d38b..79dab16 100644
 --- a/init/builtins.c
 +++ b/init/builtins.c
-@@ -553,6 +553,64 @@ exit_success:
+@@ -539,6 +539,64 @@ exit_success:
  
  }
  
@@ -81,7 +81,7 @@ index c61c639..286e882 100644
  {
      struct kbentry kbe;
 diff --git a/init/init.c b/init/init.c
-index 7405ee3..706d01c 100644
+index 010e19f..80ae755 100644
 --- a/init/init.c
 +++ b/init/init.c
 @@ -66,6 +66,7 @@ static int   bootchart_count;

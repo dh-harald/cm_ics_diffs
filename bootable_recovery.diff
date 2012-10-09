@@ -1,5 +1,5 @@
 diff --git a/Android.mk b/Android.mk
-index be4c668..9e2da74 100644
+index 887dad2..d3d9f58 100644
 --- a/Android.mk
 +++ b/Android.mk
 @@ -17,7 +17,6 @@ LOCAL_SRC_FILES := \
@@ -10,7 +10,7 @@ index be4c668..9e2da74 100644
      verifier.c
  
  ADDITIONAL_RECOVERY_FILES := $(shell echo $$ADDITIONAL_RECOVERY_FILES)
-@@ -76,12 +75,18 @@ else
+@@ -82,12 +81,18 @@ else
    LOCAL_SRC_FILES += $(BOARD_CUSTOM_RECOVERY_KEYMAPPING)
  endif
  
@@ -23,21 +23,21 @@ index be4c668..9e2da74 100644
  LOCAL_STATIC_LIBRARIES += libext4_utils libz
  LOCAL_STATIC_LIBRARIES += libminzip libunz libmincrypt
  
- LOCAL_STATIC_LIBRARIES += libedify libbusybox libmkyaffs2image libunyaffs liberase_image libdump_image libflash_image
+ LOCAL_STATIC_LIBRARIES += libminizip libedify libbusybox libmkyaffs2image libunyaffs liberase_image libdump_image libflash_image
  
--LOCAL_STATIC_LIBRARIES += libcrecovery libflashutils libmtdutils libmmcutils libbmlutils 
-+LOCAL_STATIC_LIBRARIES += libcrecovery libflashutils libmtdutils libmmcutils libbmlutils libubitools
+-LOCAL_STATIC_LIBRARIES += libdedupe libcrypto libcrecovery libflashutils libmtdutils libmmcutils libbmlutils
++LOCAL_STATIC_LIBRARIES += libdedupe libcrypto libcrecovery libflashutils libmtdutils libmmcutils libbmlutils libubitools
  
  ifeq ($(BOARD_USES_BML_OVER_MTD),true)
  LOCAL_STATIC_LIBRARIES += libbml_over_mtd
-@@ -163,4 +168,5 @@ include $(commands_recovery_local_path)/edify/Android.mk
+@@ -170,4 +175,5 @@ include $(commands_recovery_local_path)/edify/Android.mk
  include $(commands_recovery_local_path)/updater/Android.mk
  include $(commands_recovery_local_path)/applypatch/Android.mk
  include $(commands_recovery_local_path)/utilities/Android.mk
 +include $(commands_recovery_local_path)/ubitools/Android.mk
  commands_recovery_local_path :=
 diff --git a/extendedcommands.c b/extendedcommands.c
-index 845626a..33209cd 100644
+index 56d357d..05507b0 100644
 --- a/extendedcommands.c
 +++ b/extendedcommands.c
 @@ -30,6 +30,7 @@
@@ -48,9 +48,9 @@ index 845626a..33209cd 100644
  
  #include "../../external/yaffs2/yaffs2/utils/mkyaffs2image.h"
  #include "../../external/yaffs2/yaffs2/utils/unyaffs.h"
-@@ -437,9 +438,9 @@ int confirm_selection(const char* title, const char* confirm)
- 	}
- 	}
+@@ -623,9 +624,9 @@ int confirm_selection(const char* title, const char* confirm)
+     }
+     }
  
 -#define MKE2FS_BIN      "/sbin/mke2fs"
 -#define TUNE2FS_BIN     "/sbin/tune2fs"
@@ -61,7 +61,7 @@ index 845626a..33209cd 100644
  
  int format_device(const char *device, const char *path, const char *fs_type) {
      Volume* v = volume_for_path(path);
-@@ -562,6 +563,15 @@ int format_unknown_device(const char *device, const char* path, const char *fs_t
+@@ -747,6 +748,15 @@ int format_unknown_device(const char *device, const char* path, const char *fs_t
              }
              return format_ext2_device(device);
          }
@@ -78,10 +78,10 @@ index 845626a..33209cd 100644
  
      if (0 != ensure_path_mounted(path))
 diff --git a/nandroid.c b/nandroid.c
-index fc39359..84f1427 100644
+index 1efb86e..17c019c 100644
 --- a/nandroid.c
 +++ b/nandroid.c
-@@ -396,7 +396,7 @@ int nandroid_restore_partition_extended(const char* backup_path, const char* mou
+@@ -491,7 +491,7 @@ int nandroid_restore_partition_extended(const char* backup_path, const char* mou
      char* name = basename(mount_point);
  
      nandroid_restore_handler restore_handler = NULL;
@@ -91,10 +91,10 @@ index fc39359..84f1427 100644
      Volume *vol = volume_for_path(mount_point);
      const char *device = NULL;
 diff --git a/roots.c b/roots.c
-index ea97c7a..b35d5e7 100644
+index c470de0..c38d1b6 100644
 --- a/roots.c
 +++ b/roots.c
-@@ -260,7 +260,8 @@ int ensure_path_mounted_at_mount_point(const char* path, const char* mount_point
+@@ -280,7 +280,8 @@ int ensure_path_mounted_at_mount_point(const char* path, const char* mount_point
              return -1;
          }
          return mtd_mount_partition(partition, mount_point, v->fs_type, 0);
